@@ -270,9 +270,15 @@ async function syncToCloudBackground() {
   try {
     // 深度複製一份 state，並清空敏感金鑰欄位，以防上傳到雲端被 GitHub 掃描器自動廢除 Token
     const uploadState = JSON.parse(JSON.stringify(state));
-    if (uploadState.settings && uploadState.settings.sync) {
-      uploadState.settings.sync.githubToken = "";
-      uploadState.settings.sync.apiKey = "";
+    if (uploadState.settings) {
+      if (uploadState.settings.sync) {
+        uploadState.settings.sync.githubToken = "";
+        uploadState.settings.sync.apiKey = "";
+      }
+      // ⚠️ 防呆安全性過濾：若不小心將 GitHub Token (ghp_ 開頭) 填入「訪問 Token」中，一併清空以防外洩被廢止
+      if (uploadState.settings.accessToken && uploadState.settings.accessToken.startsWith("ghp_")) {
+        uploadState.settings.accessToken = "DavisCar";
+      }
     }
 
     let response;
