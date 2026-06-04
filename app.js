@@ -1661,6 +1661,19 @@ document.getElementById("cloudUploadBtn").addEventListener("click", async () => 
   if (confirm("這將會用本機當前資料，覆蓋雲端的備份檔案。確定要同步上傳嗎？")) {
     updateSyncIndicator("yellow", "強制同步上傳中...");
     try {
+      // 深度複製一份 state，並清空敏感金鑰欄位，以防上傳到雲端被 GitHub 掃描器自動廢除 Token
+      const uploadState = JSON.parse(JSON.stringify(state));
+      if (uploadState.settings) {
+        if (uploadState.settings.sync) {
+          uploadState.settings.sync.githubToken = "";
+          uploadState.settings.sync.apiKey = "";
+        }
+        // ⚠️ 防呆安全性過濾：若不小心將 GitHub Token (ghp_ 開頭) 填入「訪問 Token」中，一併清空以防外洩被廢止
+        if (uploadState.settings.accessToken && uploadState.settings.accessToken.startsWith("ghp_")) {
+          uploadState.settings.accessToken = "DavisCar";
+        }
+      }
+
       let response;
       if (provider === "jsonbin") {
         response = await fetch(`https://api.jsonbin.io/v3/b/${syncConf.binId}`, {
@@ -1669,7 +1682,7 @@ document.getElementById("cloudUploadBtn").addEventListener("click", async () => 
             "Content-Type": "application/json",
             "X-Master-Key": syncConf.apiKey
           },
-          body: JSON.stringify(state)
+          body: JSON.stringify(uploadState)
         });
       } else {
         response = await fetch(`https://api.github.com/gists/${syncConf.gistId}`, {
@@ -1681,7 +1694,7 @@ document.getElementById("cloudUploadBtn").addEventListener("click", async () => 
           body: JSON.stringify({
             files: {
               "carcare_data.json": {
-                content: JSON.stringify(state, null, 2)
+                content: JSON.stringify(uploadState, null, 2)
               }
             }
           })
