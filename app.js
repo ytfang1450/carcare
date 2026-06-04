@@ -392,79 +392,114 @@ async function fetchCPCPrice() {
   const dateEl = document.getElementById("cpcPriceDate");
   dateEl.innerText = "讀取中...";
 
-  // 1. 優先嘗試從中油官方 Open Data XML 抓取 (使用免費的 allorigins CORS Proxy 代理)
-  const targetUrl = "https://data.cpc.com.tw/xml/oilpriceAll.xml";
-  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+  const targetUrl = "https://vipmbr.cpc.com.tw/opendata/mainprodlistprice";
+  
+  // 多重代理與直連策略鏈 (Fallback Chain)
+  const strategies = [
+    // 策略 1: 直接連線 (適合瀏覽器無 CORS 限制、或中油允許的來源)
+    async () => {
+      const res = await fetch(targetUrl);
+      if (!res.ok) throw new Error(`直連失敗，狀態碼: ${res.status}`);
+      return await res.json();
+    },
+    // 策略 2: 透過 corsproxy.io 代理 (對瀏覽器端 client-side Origin 標頭友善)
+    async () => {
+      const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(targetUrl)}`);
+      if (!res.ok) throw new Error(`corsproxy.io 失敗，狀態碼: ${res.status}`);
+      return await res.json();
+    },
+    // 策略 3: 透過 allorigins.win (get 封裝 JSON 方式)
+    async () => {
+      const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
+      if (!res.ok) throw new Error(`allorigins (get) 失敗，狀態碼: ${res.status}`);
+      const resJson = await res.json();
+      if (!resJson.contents) throw new Error("allorigins 回傳內容為空");
+      return JSON.parse(resJson.contents);
+    },
+    // 策略 4: 透過 allorigins.win (raw 直接轉發方式)
+    async () => {
+      const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`);
+      if (!res.ok) throw new Error(`allorigins (raw) 失敗，狀態碼: ${res.status}`);
+      return await res.json();
+    }
+  ];
 
-  try {
-    const res = await fetch(proxyUrl);
-    if (!res.ok) throw new Error("代理伺服器連線失敗");
+  let data = null;
+  let success = false;
 
-    const resJson = await res.json();
-    const xmlText = resJson.contents;
-    if (!xmlText) throw new Error("無法取得網頁內容");
-
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-    const records = xmlDoc.getElementsByTagName("Record");
-
-    if (records.length === 0) throw new Error("XML 解析無效");
-
-    const prices = { "92": 0, "95": 0, "98": 0, "diesel": 0, "date": "" };
-
-    for (let i = 0; i < records.length; i++) {
-      const record = records[i];
-      const name = record.getElementsByTagName("產品名稱")[0]?.textContent || "";
-      const priceVal = parseFloat(record.getElementsByTagName("牌價")[0]?.textContent || "0");
-      const dateStr = record.getElementsByTagName("有效日期")[0]?.textContent || "";
-
-      if (dateStr && !prices.date) {
-        // "2026-06-01T00:00:00" -> "2026/06/01"
-        prices.date = dateStr.split("T")[0].replace(/-/g, "/");
+  for (let i = 0; i < strategies.length; i++) {
+    try {
+      console.log(`正在嘗試中油油價獲取策略 ${i + 1}...`);
+      data = await strategies[i]();
+      if (data && Array.isArray(data) && data.length > 0) {
+        success = true;
+        console.log(`策略 ${i + 1} 成功獲取中油油價資料！`);
+        break;
       }
-
-      if (name.includes("92無鉛")) prices["92"] = priceVal;
-      else if (name.includes("95無鉛")) prices["95"] = priceVal;
-      else if (name.includes("98無鉛")) prices["98"] = priceVal;
-      else if (name.includes("超級柴油")) prices["diesel"] = priceVal;
+    } catch (err) {
+      console.warn(`中油油價獲取策略 ${i + 1} 失敗:`, err.message || err);
     }
+  }
 
-    if (prices["95"] > 0) {
-      document.getElementById("cpc-92").innerText = "NT$ " + prices["92"];
-      document.getElementById("cpc-95").innerText = "NT$ " + prices["95"];
-      document.getElementById("cpc-98").innerText = "NT$ " + prices["98"];
-      document.getElementById("cpc-diesel").innerText = "NT$ " + prices["diesel"];
-      dateEl.innerText = prices.date + " 公告";
+  // 3. 解析獲取到的 JSON 牌價陣列
+  if (success && Array.isArray(data) && data.length > 0) {
+    try {
+      const prices = { "92": 0, "95": 0, "98": 0, "diesel": 0, "date": "" };
 
-      window.cpcPrices = prices;
-      state.settings.cpcPrices = prices; // 存入 state 快取
-      saveState(false); // 儲存至 LocalStorage 但在背景不觸發雲端上傳
-      return;
-    } else {
-      throw new Error("查無公告牌價數據");
+      data.forEach(item => {
+        const name = item["產品名稱"] || "";
+        const priceVal = parseFloat(item["參考牌價_金額"] || "0");
+        const rocDate = item["牌價生效日期"] || "";
+
+        // 轉換民國年生效日期 "1150601" -> "2026/06/01"
+        if (rocDate && rocDate.length >= 7 && !prices.date) {
+          const yy = parseInt(rocDate.substring(0, rocDate.length - 4));
+          const mm = rocDate.substring(rocDate.length - 4, rocDate.length - 2);
+          const dd = rocDate.substring(rocDate.length - 2);
+          prices.date = `${yy + 1911}/${mm}/${dd}`;
+        }
+
+        if (name.includes("92無鉛")) prices["92"] = priceVal;
+        else if (name.includes("95無鉛")) prices["95"] = priceVal;
+        else if (name.includes("98無鉛")) prices["98"] = priceVal;
+        else if (name.includes("超級柴油")) prices["diesel"] = priceVal;
+      });
+
+      if (prices["95"] > 0) {
+        document.getElementById("cpc-92").innerText = "NT$ " + prices["92"];
+        document.getElementById("cpc-95").innerText = "NT$ " + prices["95"];
+        document.getElementById("cpc-98").innerText = "NT$ " + prices["98"];
+        document.getElementById("cpc-diesel").innerText = "NT$ " + prices["diesel"];
+        dateEl.innerText = (prices.date || "本週") + " 公告";
+
+        window.cpcPrices = prices;
+        state.settings.cpcPrices = prices; // 存入本地 state 快取
+        saveState(false); // 儲存至 LocalStorage 但在背景不重複上傳雲端
+        return;
+      }
+    } catch (parseErr) {
+      console.error("解析中油 JSON 結構失敗", parseErr);
     }
-  } catch (err) {
-    console.warn("無法透過 CORS 代理取得中油公告油價，嘗試讀取本機快取...", err);
+  }
 
-    // 2. 失敗時，讀取本機快取
-    if (state.settings.cpcPrices && state.settings.cpcPrices["95"] > 0) {
-      const cache = state.settings.cpcPrices;
-      document.getElementById("cpc-92").innerText = "NT$ " + cache["92"];
-      document.getElementById("cpc-95").innerText = "NT$ " + cache["95"];
-      document.getElementById("cpc-98").innerText = "NT$ " + cache["98"];
-      document.getElementById("cpc-diesel").innerText = "NT$ " + cache["diesel"];
-      dateEl.innerText = cache.date + " (本機快取)";
-      window.cpcPrices = cache;
-    } else {
-      // 3. 完全沒有快取時，使用預設值
-      const fallbackPrices = { "92": 29.5, "95": 31.0, "98": 33.0, "diesel": 27.1, "date": "本週參考油價 (手動)" };
-      document.getElementById("cpc-92").innerText = "NT$ " + fallbackPrices["92"];
-      document.getElementById("cpc-95").innerText = "NT$ " + fallbackPrices["95"];
-      document.getElementById("cpc-98").innerText = "NT$ " + fallbackPrices["98"];
-      document.getElementById("cpc-diesel").innerText = "NT$ " + fallbackPrices["diesel"];
-      dateEl.innerText = fallbackPrices["date"];
-      window.cpcPrices = fallbackPrices;
-    }
+  // 4. 降級處理：讀取本地快取
+  if (state.settings.cpcPrices && state.settings.cpcPrices["95"] > 0) {
+    const cache = state.settings.cpcPrices;
+    document.getElementById("cpc-92").innerText = "NT$ " + cache["92"];
+    document.getElementById("cpc-95").innerText = "NT$ " + cache["95"];
+    document.getElementById("cpc-98").innerText = "NT$ " + cache["98"];
+    document.getElementById("cpc-diesel").innerText = "NT$ " + cache["diesel"];
+    dateEl.innerText = cache.date + " (本機快取)";
+    window.cpcPrices = cache;
+  } else {
+    // 5. 完全沒有快取時，套用預設值
+    const fallbackPrices = { "92": 29.5, "95": 31.0, "98": 33.0, "diesel": 27.1, "date": "本週參考油價 (手動)" };
+    document.getElementById("cpc-92").innerText = "NT$ " + fallbackPrices["92"];
+    document.getElementById("cpc-95").innerText = "NT$ " + fallbackPrices["95"];
+    document.getElementById("cpc-98").innerText = "NT$ " + fallbackPrices["98"];
+    document.getElementById("cpc-diesel").innerText = "NT$ " + fallbackPrices["diesel"];
+    dateEl.innerText = fallbackPrices["date"];
+    window.cpcPrices = fallbackPrices;
   }
 }
 
