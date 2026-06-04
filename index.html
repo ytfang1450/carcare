@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CarCare TCO - 汽車保養與油耗記錄軟體</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- CSS Styling -->
+  <link rel="stylesheet" href="style.css">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="dark-theme">
+
+  <!-- ================= 🔒 Token 認證遮罩 ================= -->
+  <div id="authOverlay" class="auth-overlay">
+    <div class="auth-card glass-panel">
+      <div class="auth-header">
+        <div class="auth-icon"><i class="fa-solid fa-car-side"></i></div>
+        <h2>CarCare TCO</h2>
+        <p>請輸入訪問憑證以進入系統</p>
+      </div>
+      <div class="auth-body">
+        <div class="input-group">
+          <label for="authTokenInput">訪問 Token</label>
+          <div class="input-with-icon">
+            <i class="fa-solid fa-key"></i>
+            <input type="password" id="authTokenInput" placeholder="請輸入訪問密鑰...">
+          </div>
+        </div>
+        <div id="authErrorMsg" class="error-msg hide">憑證錯誤，請重新輸入！</div>
+        <button id="authSubmitBtn" class="btn btn-primary btn-block">驗證並進入</button>
+      </div>
+      <div class="auth-footer">
+        <p>提示：可在 URL 加上 <code>?token=你的Token</code> 實現免密登入</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 📱 手機端頂部導覽列 ================= -->
+  <header class="mobile-header">
+    <button id="mobileMenuToggle" class="mobile-menu-btn">
+      <i class="fa-solid fa-bars"></i>
+    </button>
+    <div class="mobile-logo">
+      <i class="fa-solid fa-car-side text-neon-green"></i>
+      <span>CarCare TCO</span>
+    </div>
+    <div id="mobileSyncStatus" class="sync-dot-indicator tooltip" data-tooltip="未設定同步"></div>
+  </header>
+
+  <!-- ================= 📦 主應用容器 ================= -->
+  <div id="appContainer" class="app-container hide">
+    
+    <!-- ================= 👈 側邊導覽列 (Sidebar) ================= -->
+    <aside id="appSidebar" class="app-sidebar glass-panel">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <i class="fa-solid fa-car-side text-neon-green"></i>
+          <span>CarCare TCO</span>
+        </div>
+        <button id="sidebarCloseBtn" class="sidebar-close-btn"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <!-- 車輛切換選擇器 -->
+      <div class="sidebar-vehicle-selector">
+        <label for="globalVehicleSelect"><i class="fa-solid fa-car"></i> 當前車輛</label>
+        <div class="custom-select">
+          <select id="globalVehicleSelect">
+            <option value="" disabled selected>載入中...</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 導覽選單 -->
+      <nav class="sidebar-nav">
+        <ul>
+          <li class="active" data-page="dashboard">
+            <a href="#"><i class="fa-solid fa-chart-pie"></i><span>儀表板</span></a>
+          </li>
+          <li data-page="vehicles">
+            <a href="#"><i class="fa-solid fa-car-rear"></i><span>車輛管理</span></a>
+          </li>
+          <li data-page="fuel">
+            <a href="#"><i class="fa-solid fa-gas-pump"></i><span>加油記錄</span></a>
+          </li>
+          <li data-page="maintenance">
+            <a href="#"><i class="fa-solid fa-wrench"></i><span>保養記錄</span></a>
+          </li>
+          <li data-page="expenses">
+            <a href="#"><i class="fa-solid fa-receipt"></i><span>其他支出</span></a>
+          </li>
+          <li data-page="analytics">
+            <a href="#"><i class="fa-solid fa-chart-line"></i><span>數據分析</span></a>
+          </li>
+          <li data-page="settings">
+            <a href="#"><i class="fa-solid fa-sliders"></i><span>系統設定</span></a>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- 側邊欄底部同步狀態與登出 -->
+      <div class="sidebar-footer">
+        <div class="sync-status-box">
+          <span class="status-dot grey" id="syncStatusDot"></span>
+          <span id="syncStatusText" class="status-text">未啟用雲端同步</span>
+        </div>
+        <button id="lockAppBtn" class="btn btn-icon-text btn-outline btn-block">
+          <i class="fa-solid fa-lock"></i> <span>鎖定軟體</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- 側邊欄手機端遮罩 -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+    <!-- ================= 👉 主內容區域 (Main Content) ================= -->
+    <main class="app-content">
+      
+      <!-- ================= 🏠 分頁：儀表板 (Dashboard) ================= -->
+      <section id="page-dashboard" class="page-section">
+        <div class="page-header">
+          <h1>數據儀表板</h1>
+          <div class="quick-actions">
+            <button class="btn btn-primary" onclick="openAddRecordModal('fuel')">
+              <i class="fa-solid fa-gas-pump"></i> 新增加油
+            </button>
+            <button class="btn btn-blue" onclick="openAddRecordModal('maintenance')">
+              <i class="fa-solid fa-wrench"></i> 新增保養
+            </button>
+          </div>
+        </div>
+
+        <!-- KPI 數值卡片區 -->
+        <div class="kpi-grid">
+          <div class="kpi-card glass-panel border-neon-green">
+            <div class="kpi-icon bg-neon-green"><i class="fa-solid fa-dollar-sign"></i></div>
+            <div class="kpi-content">
+              <h3>總持有成本 (TCO)</h3>
+              <p class="kpi-value" id="kpi-tco">NT$ 0</p>
+              <span class="kpi-sub" id="kpi-tco-sub">購車費 + 營運支出</span>
+            </div>
+          </div>
+          
+          <div class="kpi-card glass-panel border-neon-teal">
+            <div class="kpi-icon bg-neon-teal"><i class="fa-solid fa-droplet"></i></div>
+            <div class="kpi-content">
+              <h3>平均油耗</h3>
+              <p class="kpi-value" id="kpi-fuel">0.0 <span class="unit">km/L</span></p>
+              <span class="kpi-sub" id="kpi-fuel-sub">加滿油記錄計算</span>
+            </div>
+          </div>
+
+          <div class="kpi-card glass-panel border-neon-purple">
+            <div class="kpi-icon bg-neon-purple"><i class="fa-solid fa-road"></i></div>
+            <div class="kpi-content">
+              <h3>每公里成本 (CPK)</h3>
+              <p class="kpi-value" id="kpi-cpk">NT$ 0.0 <span class="unit">/ km</span></p>
+              <span class="kpi-sub" id="kpi-cpk-sub">總支出 / 累計里程</span>
+            </div>
+          </div>
+
+          <div class="kpi-card glass-panel border-neon-blue">
+            <div class="kpi-icon bg-neon-blue"><i class="fa-solid fa-gauge"></i></div>
+            <div class="kpi-content">
+              <h3>累計行駛里程</h3>
+              <p class="kpi-value" id="kpi-odometer">0 <span class="unit">km</span></p>
+              <span class="kpi-sub" id="kpi-odometer-sub">初始里程: 0 km</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 保養到期警示與圓餅簡圖區 -->
+        <div class="dashboard-details-grid">
+          <!-- 左側：保養到期警示 -->
+          <div class="dashboard-box glass-panel flex-2">
+            <div class="box-header">
+              <h2><i class="fa-solid fa-bell text-neon-blue"></i> 保養與耗材到期提醒</h2>
+            </div>
+            <div class="box-body" id="maintenanceAlertsList">
+              <!-- 動態生成警示項目 -->
+              <div class="empty-state">
+                <i class="fa-solid fa-circle-check text-neon-green"></i>
+                <p>目前所有耗材狀態良好，無須更換！</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右側：簡易支出比例 -->
+          <div class="dashboard-box glass-panel flex-1">
+            <div class="box-header">
+              <h2><i class="fa-solid fa-chart-pie text-neon-purple"></i> 費用結構</h2>
+            </div>
+            <div class="box-body chart-body">
+              <div class="chart-container-mini">
+                <canvas id="miniCostChart"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 🚗 分頁：車輛管理 (Vehicles) ================= -->
+      <section id="page-vehicles" class="page-section hide">
+        <div class="page-header">
+          <h1>車輛管理</h1>
+          <button class="btn btn-primary" onclick="openAddVehicleModal()">
+            <i class="fa-solid fa-plus"></i> 新增車輛
+          </button>
+        </div>
+
+        <div class="vehicles-grid" id="vehiclesGrid">
+          <!-- 車輛卡片動態渲染 -->
+        </div>
+      </section>
+
+      <!-- ================= ⛽ 分頁：加油記錄 (Fuel) ================= -->
+      <section id="page-fuel" class="page-section hide">
+        <div class="page-header">
+          <h1>加油記錄</h1>
+          <button class="btn btn-primary" onclick="openAddRecordModal('fuel')">
+            <i class="fa-solid fa-plus"></i> 新增加油記錄
+          </button>
+        </div>
+
+        <!-- 中油油價快報 -->
+        <div class="fuel-price-card glass-panel margin-bottom">
+          <div class="cpc-logo">
+            <span class="badge">CPC</span>
+            <h3>中油公告參考油價</h3>
+            <span class="price-date" id="cpcPriceDate">取得中...</span>
+          </div>
+          <div class="price-grid">
+            <div class="price-item">
+              <span class="fuel-name">98 無鉛</span>
+              <span class="fuel-val" id="cpc-98">--</span>
+            </div>
+            <div class="price-item">
+              <span class="fuel-name text-neon-green">95 無鉛</span>
+              <span class="fuel-val text-neon-green" id="cpc-95">--</span>
+            </div>
+            <div class="price-item">
+              <span class="fuel-name">92 無鉛</span>
+              <span class="fuel-val" id="cpc-92">--</span>
+            </div>
+            <div class="price-item">
+              <span class="fuel-name">超級柴油</span>
+              <span class="fuel-val" id="cpc-diesel">--</span>
+            </div>
+          </div>
+          <div class="cpc-actions" style="display: flex; gap: 8px;">
+            <button class="btn btn-xs btn-outline" id="refreshCpcBtn"><i class="fa-solid fa-rotate"></i> 重新整理</button>
+            <button class="btn btn-xs btn-outline" id="editCpcBtn"><i class="fa-solid fa-pen-to-square"></i> 手動修改</button>
+          </div>
+        </div>
+
+        <div class="table-container glass-panel">
+          <div class="table-scroll">
+            <table class="data-table" id="fuelTable">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>里程數 (km)</th>
+                  <th>加油單價 (元)</th>
+                  <th>加油金額</th>
+                  <th>加油量 (L)</th>
+                  <th>油品</th>
+                  <th>加滿</th>
+                  <th>單次油耗</th>
+                  <th class="text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="fuelTableBody">
+                <!-- 動態注入 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 🔧 分頁：保養記錄 (Maintenance) ================= -->
+      <section id="page-maintenance" class="page-section hide">
+        <div class="page-header">
+          <h1>保養記錄與設定</h1>
+          <button class="btn btn-primary" onclick="openAddRecordModal('maintenance')">
+            <i class="fa-solid fa-plus"></i> 新增保養記錄
+          </button>
+        </div>
+
+        <!-- 耗材更換週期配置 -->
+        <div class="alert-settings-box glass-panel margin-bottom">
+          <div class="box-header expandable-header" onclick="toggleElement('maintenanceIntervalConfig')">
+            <h2><i class="fa-solid fa-clock text-neon-blue"></i> 自訂耗材更換週期提醒 (點擊展開/收合)</h2>
+            <i class="fa-solid fa-chevron-down arrow-icon"></i>
+          </div>
+          <div id="maintenanceIntervalConfig" class="box-body hide">
+            <p class="text-muted">設定各項耗材的保養間隔，當車輛行駛里程或時間到達時，系統將於儀表板發出提醒。</p>
+            <div class="interval-form-grid" id="intervalFormGrid">
+              <!-- 動態生成耗材週期輸入框 -->
+            </div>
+            <button class="btn btn-blue margin-top" id="saveIntervalsBtn">儲存提醒週期</button>
+          </div>
+        </div>
+
+        <div class="table-container glass-panel">
+          <div class="table-scroll">
+            <table class="data-table" id="maintenanceTable">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>里程數 (km)</th>
+                  <th>保養項目</th>
+                  <th>材料費</th>
+                  <th>工資</th>
+                  <th>總費用</th>
+                  <th>備註說明</th>
+                  <th class="text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="maintenanceTableBody">
+                <!-- 動態注入 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 🪙 分頁：其他支出 (Expenses) ================= -->
+      <section id="page-expenses" class="page-section hide">
+        <div class="page-header">
+          <h1>其他支出記錄</h1>
+          <button class="btn btn-primary" onclick="openAddRecordModal('expense')">
+            <i class="fa-solid fa-plus"></i> 新增支出記錄
+          </button>
+        </div>
+
+        <div class="table-container glass-panel">
+          <div class="table-scroll">
+            <table class="data-table" id="expenseTable">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>費用類別</th>
+                  <th>金額</th>
+                  <th>備註說明</th>
+                  <th class="text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="expenseTableBody">
+                <!-- 動態注入 -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 📊 分頁：數據分析 (Analytics) ================= -->
+      <section id="page-analytics" class="page-section hide">
+        <div class="page-header">
+          <h1>數據可視化分析</h1>
+        </div>
+
+        <div class="analytics-grid">
+          <!-- 支出圓餅圖 -->
+          <div class="chart-card glass-panel">
+            <h3><i class="fa-solid fa-chart-pie text-neon-purple"></i> 費用支出結構比</h3>
+            <div class="chart-wrapper">
+              <canvas id="costStructureChart"></canvas>
+            </div>
+          </div>
+          
+          <!-- 油耗趨勢圖 -->
+          <div class="chart-card glass-panel">
+            <h3><i class="fa-solid fa-chart-line text-neon-teal"></i> 歷史油耗趨勢 (km/L)</h3>
+            <div class="chart-wrapper">
+              <canvas id="fuelEfficiencyChart"></canvas>
+            </div>
+          </div>
+
+          <!-- 月度花費柱狀圖 -->
+          <div class="chart-card glass-panel colspan-2">
+            <h3><i class="fa-solid fa-chart-column text-neon-blue"></i> 每月花費趨勢疊加圖</h3>
+            <div class="chart-wrapper">
+              <canvas id="monthlyCostChart"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ⚙️ 分頁：系統設定 (Settings) ================= -->
+      <section id="page-settings" class="page-section hide">
+        <div class="page-header">
+          <h1>系統設定與同步</h1>
+        </div>
+
+        <div class="settings-container">
+          <!-- Token 設定 -->
+          <div class="settings-card glass-panel">
+            <h2><i class="fa-solid fa-key text-neon-green"></i> 訪問安全設定</h2>
+            <p class="settings-desc">修改進入本軟體的憑證，避免他人直接輸入網址存取資料。</p>
+            <div class="form-group">
+              <label for="settingsTokenInput">當前訪問 Token</label>
+              <input type="text" id="settingsTokenInput" placeholder="例如：DavisCar">
+            </div>
+            <button class="btn btn-primary" id="saveTokenBtn">儲存 Token</button>
+          </div>
+
+          <!-- 雲端同步設定 -->
+          <div class="settings-card glass-panel">
+            <h2><i class="fa-solid fa-cloud text-neon-teal"></i> 雲端同步設定</h2>
+            <p class="settings-desc">配置雲端同步後，資料將在您每次新增/修改時「自動在背景同步上傳」，實現電腦與手機端即時共享。</p>
+            
+            <div class="form-group">
+              <label for="syncProvider">同步服務商</label>
+              <div class="custom-select">
+                <select id="syncProvider">
+                  <option value="jsonbin" selected>jsonbin.io (極簡免設定)</option>
+                  <option value="github">GitHub Gist (集中管理、安全私密、無限制)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- jsonbin.io 專用欄位 -->
+            <div id="sync-jsonbin-fields">
+              <div class="form-group">
+                <label for="syncApiKey">jsonbin.io API Key (Master Key)</label>
+                <input type="password" id="syncApiKey" placeholder="長度約 60 字元，如 $2b$10$...">
+              </div>
+              <div class="form-group">
+                <label for="syncBinId">jsonbin.io Bin ID</label>
+                <input type="text" id="syncBinId" placeholder="長度約 24 字元，如 665d9a...">
+              </div>
+            </div>
+
+            <!-- GitHub Gist 專用欄位 -->
+            <div id="sync-github-fields" class="hide">
+              <div class="form-group">
+                <label for="syncGithubToken">GitHub Personal Access Token (classic)</label>
+                <input type="password" id="syncGithubToken" placeholder="例如：ghp_XXXXXXXXXXXXXXXXXXXX">
+                <small class="form-tip">需要包含 "gist" 讀寫權限。可在 GitHub settings 中申請。</small>
+              </div>
+              <div class="form-group">
+                <label for="syncGistId">GitHub Gist ID</label>
+                <input type="text" id="syncGistId" placeholder="例如：a1b2c3d4e5f6g7h8...">
+              </div>
+            </div>
+
+            <div class="sync-actions-group">
+              <button class="btn btn-teal" id="saveSyncBtn">儲存同步設定</button>
+              <button class="btn btn-outline" id="cloudUploadBtn"><i class="fa-solid fa-cloud-arrow-up"></i> 強制同步至雲端</button>
+              <button class="btn btn-outline" id="cloudDownloadBtn"><i class="fa-solid fa-cloud-arrow-down"></i> 從雲端覆蓋下載</button>
+            </div>
+          </div>
+
+          <!-- 資料備份與清除 -->
+          <div class="settings-card glass-panel">
+            <h2><i class="fa-solid fa-database text-neon-purple"></i> 本地資料管理</h2>
+            <p class="settings-desc">您可以在此將全車系的資料匯出為 JSON 備份檔，或從備份檔進行還原。</p>
+            <div class="backup-actions">
+              <button class="btn btn-blue" id="exportBackupBtn"><i class="fa-solid fa-file-export"></i> 匯出本機備份 (JSON)</button>
+              <label for="importBackupFile" class="btn btn-outline cursor-pointer">
+                <i class="fa-solid fa-file-import"></i> 匯入本機備份
+              </label>
+              <input type="file" id="importBackupFile" accept=".json" class="hide">
+            </div>
+            <hr class="settings-divider">
+            <h3 class="danger-zone-title"><i class="fa-solid fa-triangle-exclamation"></i> 危險區域</h3>
+            <p class="settings-desc danger">清空此瀏覽器的所有暫存資料。注意：此動作將不可逆，除非您有雲端或 JSON 備份！</p>
+            <button class="btn btn-danger" id="clearAllDataBtn"><i class="fa-solid fa-trash-can"></i> 清空本機所有資料</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ================= 🛠️ 彈出式視窗：新增/編輯資料 (Modal) ================= -->
+  <div id="recordModal" class="modal-overlay hide">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h2 id="modalTitle">新增加油記錄</h2>
+        <button class="modal-close-btn" onclick="closeRecordModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="recordForm">
+          <!-- 隱藏欄位，用於判斷目前是新增還是修改，以及哪種記錄 -->
+          <input type="hidden" id="formActionType" value="add">
+          <input type="hidden" id="formDataType" value="fuel">
+          <input type="hidden" id="formRecordId" value="">
+
+          <!-- 加油 Form 欄位 -->
+          <div id="form-fuel-fields" class="form-fields-group">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="fuelDate">加油日期</label>
+                <input type="date" id="fuelDate" required>
+              </div>
+              <div class="form-group flex-1">
+                <label for="fuelOdometer">當前里程數 (Odometer, km)</label>
+                <input type="number" id="fuelOdometer" placeholder="例如：12500" min="0" required>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="fuelPrice">加油單價 (元/公升)</label>
+                <input type="number" step="0.01" id="fuelPrice" placeholder="例如：29.5" required>
+              </div>
+              <div class="form-group flex-1">
+                <label for="fuelAmount">加油金額 (TWD)</label>
+                <input type="number" id="fuelAmount" placeholder="例如：1200" min="1" required>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="fuelType">油品種類</label>
+                <div class="custom-select">
+                  <select id="fuelType">
+                    <option value="95" selected>95 無鉛汽油</option>
+                    <option value="92">92 無鉛汽油</option>
+                    <option value="98">98 無鉛汽油</option>
+                    <option value="柴油">超級柴油</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-group flex-1 flex-center">
+                <label class="checkbox-container">
+                  <input type="checkbox" id="fuelIsFull" checked>
+                  <span class="checkmark"></span>
+                  本次是否加滿
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 保養 Form 欄位 -->
+          <div id="form-maintenance-fields" class="form-fields-group hide">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="maintDate">保養日期</label>
+                <input type="date" id="maintDate" required>
+              </div>
+              <div class="form-group flex-1">
+                <label for="maintOdometer">保養里程數 (km)</label>
+                <input type="number" id="maintOdometer" placeholder="例如：40000" min="0" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="maintItem">保養與更換項目</label>
+              <input type="text" id="maintItem" placeholder="例如：更換機油、機油芯、空氣濾網" required>
+              <small class="form-tip">若有多項可以逗號隔開。例：機油, 輪胎</small>
+            </div>
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="maintPartsCost">零件耗材費用 (TWD)</label>
+                <input type="number" id="maintPartsCost" placeholder="0" min="0" required>
+              </div>
+              <div class="form-group flex-1">
+                <label for="maintLaborCost">工資費用 (TWD)</label>
+                <input type="number" id="maintLaborCost" placeholder="0" min="0" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="maintNotes">備註說明</label>
+              <textarea id="maintNotes" placeholder="例如：保養廠推薦下次更換前輪胎" rows="3"></textarea>
+            </div>
+          </div>
+
+          <!-- 支出 Form 欄位 -->
+          <div id="form-expense-fields" class="form-fields-group hide">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="expDate">支出日期</label>
+                <input type="date" id="expDate" required>
+              </div>
+              <div class="form-group flex-1">
+                <label for="expCategory">支出類別</label>
+                <div class="custom-select">
+                  <select id="expCategory">
+                    <option value="稅金" selected>牌照稅 / 燃料稅</option>
+                    <option value="保險">汽車保險費</option>
+                    <option value="停車費">停車費</option>
+                    <option value="過路費">過路費 (eTag)</option>
+                    <option value="洗車美容">洗車 / 美容</option>
+                    <option value="違規罰單">違規罰單</option>
+                    <option value="改裝配件">改裝 / 配件</option>
+                    <option value="其他">其他支出</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="expAmount">金額 (TWD)</label>
+              <input type="number" id="expAmount" placeholder="例如：1500" min="1" required>
+            </div>
+            <div class="form-group">
+              <label for="expNotes">備註說明</label>
+              <input type="text" id="expNotes" placeholder="例如：4-6月份市區停車費月票">
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="closeRecordModal()">取消</button>
+            <button type="submit" class="btn btn-primary" id="saveRecordSubmitBtn">確認儲存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 🛠️ 彈出式視窗：新增/編輯車輛 (Vehicle Modal) ================= -->
+  <div id="vehicleModal" class="modal-overlay hide">
+    <div class="modal-content glass-panel">
+      <div class="modal-header">
+        <h2 id="vehicleModalTitle">新增管理車輛</h2>
+        <button class="modal-close-btn" onclick="closeVehicleModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="vehicleForm">
+          <input type="hidden" id="vehicleFormAction" value="add">
+          <input type="hidden" id="vehicleFormId" value="">
+
+          <div class="form-group">
+            <label for="vName">車輛名稱 (必填)</label>
+            <input type="text" id="vName" placeholder="例如：我的小鴨、RAV4、大藍" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="vMake">車輛廠牌</label>
+              <input type="text" id="vMake" placeholder="例如：Toyota, Honda">
+            </div>
+            <div class="form-group flex-1">
+              <label for="vModel">車型代號/型號</label>
+              <input type="text" id="vModel" placeholder="例如：Corolla Altis">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="vYear">生產年份 (年份)</label>
+              <input type="number" id="vYear" placeholder="例如：2020" min="1900" max="2100">
+            </div>
+            <div class="form-group flex-1">
+              <label for="vPurchasePrice">車輛購入車價 (TWD, 可空)</label>
+              <input type="number" id="vPurchasePrice" placeholder="折舊與總成本估算用">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="vInitOdo">購入時初始里程 (km)</label>
+              <input type="number" id="vInitOdo" placeholder="預設為 0" min="0" value="0" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="vPurchaseDate">購入啟用日期</label>
+              <input type="date" id="vPurchaseDate">
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="closeVehicleModal()">取消</button>
+            <button type="submit" class="btn btn-primary">儲存車輛</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript Main Application Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
