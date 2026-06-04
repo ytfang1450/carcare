@@ -268,6 +268,13 @@ async function syncToCloudBackground() {
   updateSyncIndicator("yellow", "同步上傳中...");
   
   try {
+    // 深度複製一份 state，並清空敏感金鑰欄位，以防上傳到雲端被 GitHub 掃描器自動廢除 Token
+    const uploadState = JSON.parse(JSON.stringify(state));
+    if (uploadState.settings && uploadState.settings.sync) {
+      uploadState.settings.sync.githubToken = "";
+      uploadState.settings.sync.apiKey = "";
+    }
+
     let response;
     if (syncConf.provider === "jsonbin") {
       response = await fetch(`https://api.jsonbin.io/v3/b/${syncConf.binId}`, {
@@ -276,7 +283,7 @@ async function syncToCloudBackground() {
           "Content-Type": "application/json",
           "X-Master-Key": syncConf.apiKey
         },
-        body: JSON.stringify(state)
+        body: JSON.stringify(uploadState)
       });
     } else {
       // GitHub Gist 同步 (PATCH)
@@ -289,7 +296,7 @@ async function syncToCloudBackground() {
         body: JSON.stringify({
           files: {
             "carcare_data.json": {
-              content: JSON.stringify(state, null, 2)
+              content: JSON.stringify(uploadState, null, 2)
             }
           }
         })
@@ -354,7 +361,16 @@ async function syncFromCloudBackground() {
     }
 
     if (response.ok && cloudState && cloudState.settings) {
+      // ⚠️ 下載後必須保留本地現有的 Token 設定，避免被雲端的空字串覆蓋
+      const localSyncConf = { ...state.settings.sync };
+      
       state = cloudState;
+      
+      if (state.settings && state.settings.sync) {
+        state.settings.sync.githubToken = localSyncConf.githubToken;
+        state.settings.sync.apiKey = localSyncConf.apiKey;
+      }
+
       localStorage.setItem("car_care_tco_state", JSON.stringify(state));
       updateVehicleDropdowns();
       updateUI();
